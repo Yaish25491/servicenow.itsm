@@ -1,0 +1,414 @@
+- environment:
+    SN_HOST: "{{ sn_host }}"
+    SN_USERNAME: "{{ sn_username }}"
+    SN_PASSWORD: "{{ sn_password }}"
+
+  vars:
+    assignment_groups:
+      py3.9-ansible-2.15: network
+      py3.10-ansible-2.15: software
+      py3.11-ansible-2.15: hardware
+      py3.12-ansible-2.15: IT Securities CAB
+      py3.9-ansible-2.16: Help Desk
+      py3.10-ansible-2.16: Openspace
+      py3.11-ansible-2.16: Problem Solving
+      py3.12-ansible-2.16: LDAP Admins
+      py3.9-ansible-2.18: IT Securities
+      py3.10-ansible-2.18: IT Finance CAB
+      py3.11-ansible-2.18: Network CAB Managers
+      py3.12-ansible-2.18: Service Desk
+
+  block:
+    # Setup: Create parent catalog requests and tasks
+    - name: Create first parent catalog request
+      servicenow.itsm.catalog_request:
+        state: present
+        requested_by: admin
+        requested_for: admin
+        request_state: submitted
+        short_description: First parent request for task info testing
+        description: This catalog request will be used to test task info retrieval
+      register: first_parent
+
+    - name: Create second parent catalog request
+      servicenow.itsm.catalog_request:
+        state: present
+        requested_by: admin
+        requested_for: admin
+        request_state: in_process
+        short_description: Second parent request for task info testing
+        description: Another catalog request for testing task queries
+      register: second_parent
+
+    - name: Store parent request details
+      ansible.builtin.set_fact:
+        first_parent_number: "{{ first_parent.record.number }}"
+        first_parent_sys_id: "{{ first_parent.record.sys_id }}"
+        second_parent_number: "{{ second_parent.record.number }}"
+        second_parent_sys_id: "{{ second_parent.record.sys_id }}"
+
+    # Create test catalog request tasks
+    - name: Create first test task (high priority)
+      servicenow.itsm.catalog_request_task:
+        state: present
+        request: "{{ first_parent_number }}"
+        task_state: open
+        priority: "1"
+        urgency: "1"
+        impact: "2"
+        short_description: High priority task for info testing
+        description: This is a high priority task for testing info retrieval
+        assignment_group: "{{ assignment_groups[test_name] | default('IT Support') }}"
+        order: 10
+        comments: High priority test task
+      register: first_task
+
+    - name: Create second test task (medium priority)
+      servicenow.itsm.catalog_request_task:
+        state: present
+        request: "{{ first_parent_number }}"
+        task_state: work_in_progress
+        priority: "2"
+        urgency: "2"
+        impact: "3"
+        short_description: Medium priority task for info testing
+        description: This is a medium priority task for testing info retrieval
+        assigned_to: admin
+        order: 20
+        comments: Medium priority test task
+      register: second_task
+
+    - name: Create third test task (low priority, different parent)
+      servicenow.itsm.catalog_request_task:
+        state: present
+        request: "{{ second_parent_number }}"
+        task_state: pending
+        priority: "3"
+        urgency: "3"
+        impact: "1"
+        short_description: Low priority task with different attributes
+        description: This task has different attributes for testing queries
+        order: 5
+        comments: Low priority test task
+      register: third_task
+
+    - name: Create fourth test task (closed)
+      servicenow.itsm.catalog_request_task:
+        state: present
+        request: "{{ second_parent_number }}"
+        task_state: closed_complete
+        priority: "2"
+        urgency: "2"
+        impact: "2"
+        short_description: Completed task for testing
+        description: This task is closed for testing completed states
+        close_notes: Task completed successfully during testing
+        order: 15
+      register: fourth_task
+
+    - name: Store task details
+      ansible.builtin.set_fact:
+        first_task_number: "{{ first_task.record.number }}"
+        first_task_sys_id: "{{ first_task.record.sys_id }}"
+        second_task_number: "{{ second_task.record.number }}"
+        second_task_sys_id: "{{ second_task.record.sys_id }}"
+        third_task_number: "{{ third_task.record.number }}"
+        third_task_sys_id: "{{ third_task.record.sys_id }}"
+        fourth_task_number: "{{ fourth_task.record.number }}"
+        fourth_task_sys_id: "{{ fourth_task.record.sys_id }}"
+
+    # Test 1: Get all catalog request tasks (no filters)
+    - name: Get all catalog request tasks
+      servicenow.itsm.catalog_request_task_info:
+      register: all_tasks
+
+    - ansible.builtin.assert:
+        that:
+          - all_tasks.records | length >= 4
+          - first_task_sys_id in (all_tasks.records | map(attribute='sys_id') | list)
+          - second_task_sys_id in (all_tasks.records | map(attribute='sys_id') | list)
+          - third_task_sys_id in (all_tasks.records | map(attribute='sys_id') | list)
+          - fourth_task_sys_id in (all_tasks.records | map(attribute='sys_id') | list)
+
+    # Test 2: Get catalog request task by sys_id
+    - name: Get catalog request task by sys_id
+      servicenow.itsm.catalog_request_task_info:
+        sys_id: "{{ first_task_sys_id }}"
+      register: info_by_sys_id
+
+    - ansible.builtin.assert:
+        that:
+          - info_by_sys_id.records | length == 1
+          - info_by_sys_id.records[0].sys_id == first_task_sys_id
+          - info_by_sys_id.records[0].number == first_task_number
+          - info_by_sys_id.records[0].state == "open"
+          - info_by_sys_id.records[0].priority == "1"
+
+    # Test 3: Get catalog request task by number
+    - name: Get catalog request task by number
+      servicenow.itsm.catalog_request_task_info:
+        number: "{{ second_task_number }}"
+      register: info_by_number
+
+    - ansible.builtin.assert:
+        that:
+          - info_by_number.records | length == 1
+          - info_by_number.records[0].sys_id == second_task_sys_id
+          - info_by_number.records[0].number == second_task_number
+          - info_by_number.records[0].state == "work_in_progress"
+          - info_by_number.records[0].priority == "2"
+
+    # Test 4: Get tasks by parent request using sysparm_query
+    - name: Get tasks for first parent request
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "request={{ first_parent_number }}"
+      register: tasks_by_parent
+
+    - ansible.builtin.assert:
+        that:
+          - tasks_by_parent.records | length == 2
+          - first_task_sys_id in (tasks_by_parent.records | map(attribute='sys_id') | list)
+          - second_task_sys_id in (tasks_by_parent.records | map(attribute='sys_id') | list)
+
+    # Test 5: Get tasks by state using sysparm_query
+    - name: Get open tasks
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "state=open"
+      register: open_tasks
+
+    - ansible.builtin.assert:
+        that:
+          - open_tasks.records | length >= 1
+          - first_task_sys_id in (open_tasks.records | map(attribute='sys_id') | list)
+
+    # Test 6: Get tasks by priority using sysparm_query
+    - name: Get high priority tasks
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "priority=1"
+      register: high_priority_tasks
+
+    - ansible.builtin.assert:
+        that:
+          - high_priority_tasks.records | length >= 1
+          - first_task_sys_id in (high_priority_tasks.records | map(attribute='sys_id') | list)
+
+    # Test 7: Search using LIKE operator
+    - name: Search tasks with description containing 'info testing'
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "short_descriptionLIKEinfo testing"
+      register: info_by_like
+
+    - ansible.builtin.assert:
+        that:
+          - info_by_like.records | length >= 2
+          - first_task_sys_id in (info_by_like.records | map(attribute='sys_id') | list)
+          - second_task_sys_id in (info_by_like.records | map(attribute='sys_id') | list)
+
+    # Test 8: Search with multiple conditions using AND
+    - name: Search with multiple AND conditions
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "priority=2^state=work_in_progress"
+      register: info_by_multiple_and
+
+    - ansible.builtin.assert:
+        that:
+          - info_by_multiple_and.records | length >= 1
+          - second_task_sys_id in (info_by_multiple_and.records | map(attribute='sys_id') | list)
+
+    # Test 9: Search with OR conditions
+    - name: Search with OR conditions
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "state=open^ORstate=pending"
+      register: info_by_or
+
+    - ansible.builtin.assert:
+        that:
+          - info_by_or.records | length >= 2
+          - first_task_sys_id in (info_by_or.records | map(attribute='sys_id') | list)
+          - third_task_sys_id in (info_by_or.records | map(attribute='sys_id') | list)
+
+    # Test 10: Get display values
+    - name: Get catalog request task with display values
+      servicenow.itsm.catalog_request_task_info:
+        number: "{{ second_task_number }}"
+        sysparm_display_value: "true"
+      register: info_display_values
+
+    - ansible.builtin.assert:
+        that:
+          - info_display_values.records | length == 1
+          - info_display_values.records[0].assigned_to == "admin"
+          - info_display_values.records[0].request == first_parent_number
+
+    # Test 11: Get tasks by assignment group
+    - name: Get tasks by assignment group
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "assignment_group={{ assignment_groups[test_name] | default('IT Support') }}"
+      register: tasks_by_group
+
+    - ansible.builtin.assert:
+        that:
+          - tasks_by_group.records | length >= 1
+          - first_task_sys_id in (tasks_by_group.records | map(attribute='sys_id') | list)
+
+    # Test 12: Get completed tasks
+    - name: Get completed tasks
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "state=closed_complete"
+      register: completed_tasks
+
+    - ansible.builtin.assert:
+        that:
+          - completed_tasks.records | length >= 1
+          - fourth_task_sys_id in (completed_tasks.records | map(attribute='sys_id') | list)
+
+    # Test 13: Search by order
+    - name: Get tasks by order
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "order>=10"
+      register: tasks_by_order
+
+    - ansible.builtin.assert:
+        that:
+          - tasks_by_order.records | length >= 3
+          - first_task_sys_id in (tasks_by_order.records | map(attribute='sys_id') | list)
+          - second_task_sys_id in (tasks_by_order.records | map(attribute='sys_id') | list)
+          - fourth_task_sys_id in (tasks_by_order.records | map(attribute='sys_id') | list)
+
+    # Test 14: Test with non-existent sys_id
+    - name: Search for non-existent sys_id
+      servicenow.itsm.catalog_request_task_info:
+        sys_id: "00000000000000000000000000000000"
+      register: info_nonexistent_id
+
+    - ansible.builtin.assert:
+        that:
+          - info_nonexistent_id.records | length == 0
+
+    # Test 15: Test with non-existent number
+    - name: Search for non-existent number
+      servicenow.itsm.catalog_request_task_info:
+        number: "SCTASK999999"
+      register: info_nonexistent_number
+
+    - ansible.builtin.assert:
+        that:
+          - info_nonexistent_number.records | length == 0
+
+    # Test 16: Test ordering by priority
+    - name: Get tasks ordered by priority
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "short_descriptionLIKEinfo testing^ORDERBYpriority"
+      register: info_ordered
+
+    - ansible.builtin.assert:
+        that:
+          - info_ordered.records | length >= 2
+
+    # Test 17: Update a task and verify info reflects changes
+    - name: Update third task state
+      servicenow.itsm.catalog_request_task:
+        state: present
+        number: "{{ third_task_number }}"
+        task_state: open
+        work_notes: Updated for testing info retrieval
+
+    - name: Verify updated state in info
+      servicenow.itsm.catalog_request_task_info:
+        number: "{{ third_task_number }}"
+      register: info_after_update
+
+    - ansible.builtin.assert:
+        that:
+          - info_after_update.records | length == 1
+          - info_after_update.records[0].state == "open"
+          - info_after_update.records[0].work_notes == "Updated for testing info retrieval"
+
+    # Test 18: Test complex query with multiple fields
+    - name: Complex query with multiple fields
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "short_descriptionLIKEtesting^urgency>=2^impact<=3^priority!=3"
+      register: info_complex
+
+    - ansible.builtin.assert:
+        that:
+          - info_complex.records | length >= 1
+
+    # Test 19: Verify all important fields are present
+    - name: Verify all important fields are present
+      servicenow.itsm.catalog_request_task_info:
+        number: "{{ fourth_task_number }}"
+      register: field_test
+
+    - ansible.builtin.assert:
+        that:
+          - field_test.records | length == 1
+          - field_test.records[0].sys_id is defined
+          - field_test.records[0].number is defined
+          - field_test.records[0].state is defined
+          - field_test.records[0].short_description is defined
+          - field_test.records[0].priority is defined
+          - field_test.records[0].urgency is defined
+          - field_test.records[0].impact is defined
+          - field_test.records[0].order is defined
+          - field_test.records[0].close_notes is defined
+
+    # Test 20: Test tasks across multiple parent requests
+    - name: Get all tasks for both parent requests
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "request={{ first_parent_number }}^ORrequest={{ second_parent_number }}"
+      register: all_parent_tasks
+
+    - ansible.builtin.assert:
+        that:
+          - all_parent_tasks.records | length == 4
+          - first_task_sys_id in (all_parent_tasks.records | map(attribute='sys_id') | list)
+          - second_task_sys_id in (all_parent_tasks.records | map(attribute='sys_id') | list)
+          - third_task_sys_id in (all_parent_tasks.records | map(attribute='sys_id') | list)
+          - fourth_task_sys_id in (all_parent_tasks.records | map(attribute='sys_id') | list)
+
+    # Test 21: Test tasks by assigned user
+    - name: Get tasks assigned to admin
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "assigned_to=admin"
+      register: tasks_by_user
+
+    - ansible.builtin.assert:
+        that:
+          - tasks_by_user.records | length >= 1
+          - second_task_sys_id in (tasks_by_user.records | map(attribute='sys_id') | list)
+
+    # Test 22: Test tasks with close notes
+    - name: Get tasks with close notes
+      servicenow.itsm.catalog_request_task_info:
+        sysparm_query: "close_notesISNOTEMPTY"
+      register: tasks_with_notes
+
+    - ansible.builtin.assert:
+        that:
+          - tasks_with_notes.records | length >= 1
+          - fourth_task_sys_id in (tasks_with_notes.records | map(attribute='sys_id') | list)
+
+  always:
+    # Cleanup: Delete test tasks and requests
+    - name: Delete test catalog request tasks
+      servicenow.itsm.catalog_request_task:
+        state: absent
+        number: "{{ item }}"
+      ignore_errors: yes
+      loop:
+        - "{{ first_task_number | default('') }}"
+        - "{{ second_task_number | default('') }}"
+        - "{{ third_task_number | default('') }}"
+        - "{{ fourth_task_number | default('') }}"
+      when: item != ""
+
+    - name: Delete parent catalog requests
+      servicenow.itsm.catalog_request:
+        state: absent
+        number: "{{ item }}"
+      ignore_errors: yes
+      loop:
+        - "{{ first_parent_number | default('') }}"
+        - "{{ second_parent_number | default('') }}"
+      when: item != ""

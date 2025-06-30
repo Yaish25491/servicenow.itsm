@@ -74,6 +74,31 @@ PROBLEM_TASK_MAPPING_SPEC = dict(
     ),
 )
 
+CATALOG_REQUEST_MAPPING_SPEC = dict(
+    type="dict",
+    required=False,
+    options=dict(
+        priority=dict(type="dict"),
+        urgency=dict(type="dict"),
+        impact=dict(type="dict"),
+        request_state=dict(type="dict"),
+        stage=dict(type="dict"),
+        approval=dict(type="dict"),
+    ),
+)
+
+CATALOG_REQUEST_TASK_MAPPING_SPEC = dict(
+    type="dict",
+    required=False,
+    options=dict(
+        priority=dict(type="dict"),
+        urgency=dict(type="dict"),
+        impact=dict(type="dict"),
+        state=dict(type="dict"),
+        approval=dict(type="dict"),
+    ),
+)
+
 SHARED_SPECS = dict(
     instance=dict(
         type="dict",
@@ -189,6 +214,8 @@ SHARED_SPECS = dict(
     configuration_item_mapping=CONFIGURATION_ITEM_MAPPING_SPEC,
     problem_mapping=PROBLEM_MAPPING_SPEC,
     problem_task_mapping=PROBLEM_TASK_MAPPING_SPEC,
+    catalog_request_mapping=CATALOG_REQUEST_MAPPING_SPEC,
+    catalog_request_task_mapping=CATALOG_REQUEST_TASK_MAPPING_SPEC,
 )
 
 

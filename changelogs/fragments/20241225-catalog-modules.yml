@@ -1,0 +1,6 @@
+minor_changes:
+  - Added support for ServiceNow catalog requests with new catalog_request module for managing sc_request records
+  - Added support for ServiceNow catalog request tasks with new catalog_request_task module for managing sc_task records
+  - Added catalog_request_info module for retrieving catalog request information
+  - Added catalog_request_task_info module for retrieving catalog request task information
+  - These new modules enable full round-trip integration between Ansible Automation Platform and ServiceNow service catalog workflows
